@@ -29,184 +29,187 @@ namespace VMS.TPS
         {
         }
         // variable initialization
-        public System.Windows.Media.Brush Foreground { get; set; }
         private Patient _patient;
         private Course _course;
         private StructureSet _ss;
         private PlanSetup _plan;
-        private ListBox structureList;
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        public void Execute(ScriptContext context, System.Windows.Window window/*, ScriptEnvironment environment*/)
+        public void Execute(ScriptContext context/*, ScriptEnvironment environment*/)
         {
-            // Validate patient in current context
-            ValidatePatient(context);
-            // Validate the course in current context
-            ValidateCourse(context);
-            // Validate structure set in current context
-            ValidateStructureSet(context);
-            // Validate plan in current context
-            ValidatePlan(context);
+            // Validate context
+            if (!ValidatePatient(context) ||
+                !ValidateCourse(context) ||
+                !ValidateStructureSet(context) ||
+                !ValidatePlan(context))
+            {
+                return; // exit 
+            }
+
             try
             {
-                _patient = GetPatient(context);
-                _ss = GetStructureSet(context);
-                _course = GetCourse(context);
-                _plan = GetPlan(context);
+                _patient = context.Patient;
+                _ss = context.StructureSet;
+                _course = context.Course;
+                _plan = context.PlanSetup;
 
+                // check for a structure named PTV_CSI
+                var ptv = _ss.Structures.FirstOrDefault(s => s.Id.Equals("PTV_CSI", StringComparison.OrdinalIgnoreCase));
+                if (ptv == null)
+                {
+                    MessageBox.Show("PTV_CSI structure not found.");
+                    return;
+                }
+                // group beams by iso
                 var beamGroups = _plan.Beams.Where(b => !b.IsSetupField).GroupBy(b => new { b.IsocenterPosition.x, b.IsocenterPosition.y, b.IsocenterPosition.z }).ToList();
 
-                ibn groupIdx = 1;
-                var groupStructures
+                if (beamGroups.Count < 2)
+                {
+                    MessageBox.Show("Plan has only one isocenter - no junction region.");
+                    return;
+                }
 
-                MessageBox.Show(string.Format("You are working with patient {0}, course {1}, structure set {2} and plan {3}",_patient.Id, _course.Id,_structureSet.Id, _plan.Id));
-                //#region Starting to generate the UI
+                int junctionCount = beamGroups.Count - 1;
+                MessageBox.Show(
+                    $"You are working with patient {_patient.Id}, course {_course.Id}, structure set {_ss.Id} and plan {_plan.Id}.\n\n" +
+                    $"Found {beamGroups.Count} isocenter groups in the plan, will create {junctionCount} junction structure(s).");
 
-                //// main container
-                //StackPanel spMain = new StackPanel
-                //{
-                //    Orientation = Orientation.Vertical,
-                //    HorizontalAlignment = HorizontalAlignment.Left,
-                //    Margin = new Thickness(0, 10, 0, 0),
-                //    Width = 600
-                //};
-                //// title
-                //_TitleBlock = new TextBlock
-                //{
-                //    Text = "Structure Downsampler",
-                //    FontSize = 32,
-                //    FontWeight = FontWeights.Bold,
-                //    HorizontalAlignment = HorizontalAlignment.Left,
-                //    Margin = new Thickness(0, 0, 0, 0),
-                //    Foreground = System.Windows.Media.Brushes.MediumBlue
-                //};
+                try
+                {
+                    //var body = _ss.Structures.FirstOrDefault(d => d.DicomType == "EXTERNAL"); may not need
 
-                //// author info
-                //_AuthorBlock = new TextBlock
-                //{
-                //    Text = "University of Utah Huntsman Cancer Institute (nicholas.nelson@hci.utah.edu)",
-                //    FontSize = 14,
-                //    HorizontalAlignment = HorizontalAlignment.Left,
-                //    Margin = new Thickness(0, 0, 0, 0),
-                //    TextWrapping = TextWrapping.Wrap
-                //};
+                    // get the Z span of the CT image
+                    var image = context.Image;
+                    double[] zValues = image.ZSize > 0
+                        ? Enumerable.Range(0, image.ZSize)
+                            .Select(i => image.Origin.z + i * image.ZRes)
+                            .ToArray()
+                        : Array.Empty<double>();
 
-                //_notesBlock = new TextBlock
-                //{
-                //    Text = string.Format("This script will identify high resolution Eclipse contours and, if selected, convert them to default resolution. This" +
-                //"is useful for optimizations on large datasets (such as VMAT CSI) that have a lot of high resolution structures (which often come from MIM Protege)"),
-                //    HorizontalAlignment = HorizontalAlignment.Left,
-                //    Margin = new Thickness(0, 5, 5, 0),
-                //    TextWrapping = TextWrapping.Wrap,
-                //    VerticalAlignment = VerticalAlignment.Bottom
-                //};
 
-                //// Patient info
-                //_patientNameBlock = new TextBlock
-                //{
-                //    Text = "PATIENT INFO",
-                //    FontSize = 28,
-                //    FontWeight = FontWeights.Bold,
-                //    HorizontalAlignment = HorizontalAlignment.Center,
-                //    Margin = new Thickness(0, 10, 0, 0)
-                //};
+                    _patient.BeginModifications();
+                    
+                    // generate an isocenter structure (PTV_CSI clipped by min and max Z coordinates)
+                    for (int i=0; i < beamGroups.Count; i++) 
+                    {
+                        var iso = beamGroups[i];
 
-                //_patientInfoBlock = new TextBlock
-                //{
-                //    Text = string.Format("Name: {0}\n" +
-                //    "Structure Set ID: {1}\n", _patient.Name, _structureSet.Id),
-                //    HorizontalAlignment = HorizontalAlignment.Center,
-                //    Margin = new Thickness(0, 0, 0, 0)
-                //};
+                        // find min and max z
+                        double minZ = iso.Min(b => b.ControlPoints.Min(cp => b.IsocenterPosition.z + Math.Min(cp.JawPositions.Y1, cp.JawPositions.Y2))); // distance
+                        int minSlice = (int)Math.Round((minZ - image.Origin.z) / image.ZRes); // slice number
+                        double maxZ = iso.Max(b => b.ControlPoints.Max(cp => b.IsocenterPosition.z + Math.Max(cp.JawPositions.Y1, cp.JawPositions.Y2)));
+                        int maxSlice = (int)Math.Round((maxZ - image.Origin.z) / image.ZRes);
 
-                //// table title
-                //var tableTitleBlock = new TextBlock
-                //{
-                //    Text = "High resolution structures",
-                //    FontSize = 24,
-                //    FontWeight = FontWeights.Bold,
-                //    HorizontalAlignment = HorizontalAlignment.Center,
-                //    Margin = new Thickness(0, 0, 0, 0)
-                //};
+                        //MessageBox.Show($"min Z is: {minZ}\n" +
+                        //    $"min Z slice is: {minSlice}\n\n" +
+                        //    $"max Z is: {maxZ}\n" +
+                        //    $"max Z slice is: {maxSlice}");
 
-                //structureList = new ListBox
-                //{
-                //    SelectionMode = SelectionMode.Multiple,
-                //    HorizontalAlignment = HorizontalAlignment.Center,
-                //    Width = 350
-                //};
+                        string isoStructId = $"PTV_ISO_{beamGroups.Count - i}";
+                        if (_ss.Structures.Any(s => s.Id.Equals(isoStructId)))
+                        {
+                            MessageBox.Show($"{isoStructId} exists. Skipping");
+                            continue;
+                        }
 
-                //foreach (var contour in _HiResContourList)
+                        Structure isoStruct = _ss.AddStructure("CONTROL", isoStructId);
+
+                        for (int z = minSlice; z <= maxSlice; z++)
+                        {
+                            var contours = ptv.GetContoursOnImagePlane(z);
+                            foreach (var contour in contours)
+                            {
+                                isoStruct.AddContourOnImagePlane(contour, z);
+                            }
+                        }
+
+                        // Contour junctions between isocenter contours
+                        for (int j = 0; j < beamGroups.Count - 1; j++)
+                        {
+                            string structIdA = $"PTV_ISO_{beamGroups.Count - j}";
+                            string structIdB = $"PTV_ISO_{beamGroups.Count - (j + 1)}";
+                            string juncStructId = $"JUNC_{beamGroups.Count - (j + 1)}";
+
+                            Structure structA = _ss.Structures.FirstOrDefault(s => s.Id.Equals(structIdA));
+                            Structure structB = _ss.Structures.FirstOrDefault(s => s.Id.Equals(structIdB));
+
+                            if (structA == null || structB == null)
+                                continue;
+                            
+                            MessageBox.Show("Existing structures:\n" + string.Join("\n", _ss.Structures.Select(s => s.Id)));
+
+                            if (_ss.Structures.Any(s => s.Id.Equals(juncStructId)))
+                            {
+                                MessageBox.Show($"{juncStructId} exists. Skipping.");
+                                continue;
+                            }
+
+                            Structure juncStruct = _ss.AddStructure("CONTROL", juncStructId);
+
+                            int minSliceA = (int)Math.Round((structA.MeshGeometry.Bounds.Z - image.Origin.z) / image.ZRes);
+                            int maxSliceA = (int)Math.Round(((structA.MeshGeometry.Bounds.Z + structA.MeshGeometry.Bounds.SizeZ) - image.Origin.z) / image.ZRes);
+
+                            int minSliceB = (int)Math.Round((structB.MeshGeometry.Bounds.Z - image.Origin.z) / image.ZRes);
+                            int maxSliceB = (int)Math.Round(((structB.MeshGeometry.Bounds.Z + structB.MeshGeometry.Bounds.SizeZ) - image.Origin.z) / image.ZRes);
+
+                            int overlapMinSlice = Math.Max(minSliceA, minSliceB);
+                            int overlapMaxSlice = Math.Min(maxSliceA, maxSliceB);
+
+                            if (overlapMinSlice > overlapMaxSlice)
+                                continue;
+
+                            for (int z = overlapMinSlice; z <= overlapMaxSlice; z++)
+                            {
+                                var contoursA = structA.GetContoursOnImagePlane(z);
+                                var contoursB = structB.GetContoursOnImagePlane(z);
+
+                                if (contoursA.Any() && contoursB.Any())
+                                {
+                                    foreach (var contour in contoursA.Concat(contoursB))
+                                    {
+                                        juncStruct.AddContourOnImagePlane(contour, z);
+                                    }
+                                }
+                            }
+
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(
+                        $"Sorry, something went wrong.\n\n" +
+                        $"{ex.Message}\n\n{ex.StackTrace}");
+                    throw;
+                }
+                //// create temp structures for each iso
+                //int idx = 1;
+                //var isoStruts = beamGroups.Select(bg =>
                 //{
-                //    structureList.Items.Add(new CheckBox
+                //    var sId = $"ISO_{idx++}";
+                //    var isoStruct = _ss.AddStructure("CONTROL", sId);
+
+                //    // use body contour and boolean is with beam junction
+                //    var body = _ss.Structures.FirstOrDefault(s => s.DicomType == "EXTERNAL");
+                //    if (body != null)
                 //    {
-                //        Content = string.Format("{0} (Volume = {1} cc)",contour.Id,Math.Round(contour.Volume, 2)),
-                //        Tag = contour,
-                //        IsChecked = false
-                //    });
-                //}
+                //        isoStruct.SegmentVolume = body.SegmentVolume;
+                //    }
+                //    return isoStruct;
+                //}).ToList();
 
-                //_checkedStructureBox = new WinForms.CheckedListBox
-                //{
-                //    Dock = WinForms.DockStyle.Fill,
-                //    CheckOnClick = true // lets you click with single click
-                //};
-
-                //// button to calculate CBCT dose
-                //var _convertStructuresButton = new Button
-                //{
-
-                //    // button content - what it says
-                //    Content = "Convert selected structures to default resolution",
-
-                //    // a little padding
-                //    Padding = new Thickness(10),
-                //    Cursor = Cursors.Hand,
-                //    HorizontalAlignment = HorizontalAlignment.Center,
-                //    Width = 350,
-                //    Margin = new Thickness(10, 10, 10, 10)
-                //};
-
-                //#endregion End of ComboBox/StackPanel setup
-
-                //#region Calculation/replanning button clicking region
-                //_convertStructuresButton.Click += _convertStructuresButton_Click;
-
-                //#endregion End of Calculation region
-
-                //#region Final UI presentation
-                //// add to main stack panel
-                //spMain.Children.Add(_TitleBlock);
-                //spMain.Children.Add(_AuthorBlock);
-                //spMain.Children.Add(_notesBlock);
-                //spMain.Children.Add(_patientNameBlock);
-                //spMain.Children.Add(_patientInfoBlock);
-                //spMain.Children.Add(tableTitleBlock);
-                //spMain.Children.Add(structureList);
-                //spMain.Children.Add(_convertStructuresButton);
-                //spMain.VerticalAlignment = VerticalAlignment.Stretch;
-
-
-
-                //// window settings
-                //window.Title = "Structure Downsampler";
-                //window.FontFamily = new System.Windows.Media.FontFamily("Calibri");
-                //window.FontSize = 14;
-                //window.Width = spMain.Width + 50;
-                //window.Height = spMain.Height + 50;
-                //window.WindowStartupLocation = WindowStartupLocation.Manual;
-                //window.Content = spMain;
-                //#endregion End of final UI presentation
+                //// boolean those with PTV_CSI
+                //var junctionId = "JUNCTION";
 
             }
             catch (Exception ex)
             {
-                MessageBox.Show(string.Format("Sorry, something went wrong.\n\n{0}\n\n{1}", ex.Message, ex.StackTrace));
+                MessageBox.Show(
+                    $"Sorry, something went wrong.\n\n" +
+                    $"{ex.Message}\n\n{ex.StackTrace}");
                 throw;
             }
         }
-
-
 
         //HELPER FUNCTIONS
 
@@ -215,13 +218,14 @@ namespace VMS.TPS
         /// <para></para>Will alert the user and end the script
         /// </summary>
         /// <param name="context"></param>
-        private void ValidatePatient(ScriptContext context)
+        private bool ValidatePatient(ScriptContext context)
         {
             if (context.Patient == null)
             {
                 MessageBox.Show("Please open a patient");
-                return;
+                return false;
             }
+            return true;
         }
 
         /// <summary>
@@ -229,13 +233,14 @@ namespace VMS.TPS
         /// <para></para>Will alert the user and end the script
         /// </summary>
         /// <param name="context"></param>
-        private void ValidateCourse(ScriptContext context)
+        private bool ValidateCourse(ScriptContext context)
         {
             if (context.Course == null)
             {
                 MessageBox.Show("Please open a course");
-                return;
+                return false;
             }
+            return true;
         }
 
         /// <summary>
@@ -243,13 +248,14 @@ namespace VMS.TPS
         /// <para></para>Will alert the user and end the script
         /// </summary>
         /// <param name="context"></param>
-        private void ValidateStructureSet(ScriptContext context)
+        private bool ValidateStructureSet(ScriptContext context)
         {
             if (context.StructureSet == null)
             {
                 MessageBox.Show("Please open a structure set");
-                return;
+                return false;
             }
+            return true;
         }
 
         /// <summary>
@@ -257,291 +263,14 @@ namespace VMS.TPS
         /// <para></para>Will alert the user and end the script
         /// </summary>
         /// <param name="context"></param>
-        private void ValidatePlan(ScriptContext context)
+        private bool ValidatePlan(ScriptContext context)
         {
             if (context.StructureSet == null)
             {
                 MessageBox.Show("Please open a plan");
-                return;
+                return false;
             }
-        }
-
-        /// <summary>
-        /// Gets the image of the current plan (which should be the CT sim)
-        /// </summary>
-        /// <param name="context"></param>
-        /// <returns></returns>
-        private static Common.Model.API.Image GetSimImage(ScriptContext context)
-        {
-            return context.Image;
-        }
-
-        private static IEnumerable<Beam> GetBeams(ScriptContext context)
-        {
-            return context.PlanSetup.Beams;
-        }
-
-        /// <summary>
-        /// Returns the plan setup in the current context
-        /// </summary>
-        /// <param name="context"></param>
-        /// <returns></returns>
-        private static PlanSetup GetPlanSetup(ScriptContext context)
-        {
-            return context.PlanSetup;
-        }
-
-        private StructureSet GetStructureSet(ScriptContext context)
-        {
-            return context.StructureSet;
-        }
-
-        /// <summary>
-        /// Gets plan
-        /// </summary>
-        /// <param name="context"></param>
-        private PlanSetup GetPlan(ScriptContext context)
-        {
-            return context.PlanSetup;
-        }
-
-        /// <summary>
-        /// Gets study
-        /// </summary>
-        /// <param name="context"></param>
-        /// <returns></returns>
-        private IEnumerable<Study> GetStudy(ScriptContext context)
-        {
-            return context.Patient.Studies;
-        }
-
-        /// <summary>
-        /// Gets course
-        /// </summary>
-        /// <param name="context"></param>
-        /// <returns></returns>
-        private static Course GetCourse(ScriptContext context)
-        {
-            return context.Course;
-        }
-
-
-
-        /// <summary>
-        /// Validates that the current context is a Course
-        /// <para></para>Will alert the user and end the script
-        /// </summary>
-        /// <param name="context"></param>
-        //private void VerifyStructureTypes(StructureSet ssToCheck)
-        //{
-        //    foreach (Structure contour in ssToCheck)
-        //    {
-        //        if (contour.DicomType == "None")
-        //        {
-        //            contour.DicomType.
-        //        }
-        //    }
-        //}
-
-        /// <summary>
-        /// Gets the patient in the current context
-        /// </summary>
-        /// <param name="context"></param>
-        /// <returns></returns>
-        private static Patient GetPatient(ScriptContext context)
-        {
-            return context.Patient;
-        }
-
-        /// <summary>
-        /// Template delegate used for progress reporting when the operations is being performed in a separate helper class
-        /// </summary>
-        /// <param name="comp"></param>
-        /// <param name="msg"></param>
-        /// <param name="f"></param>
-        public delegate void ProvideUIUpdateDelegate(int comp, string msg = "", bool f = false);
-
-        /// <summary>
-        /// Button that converts structures to default resolution.
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void _convertStructuresButton_Click(object sender, RoutedEventArgs e)
-        {
-            var selectedContours = new List<Structure>();
-
-            foreach (CheckBox cb in structureList.Items)
-            {
-                if (cb.IsChecked == true)
-                {
-                    if (cb.Tag is Structure contour)
-                    {
-                        selectedContours.Add(contour); // the tag is the contour 
-                    }
-                }
-            }
-
-            MessageBox.Show($"You selected {selectedContours.Count} contours for conversion");
-            _patient.BeginModifications();
-            foreach (Structure contour in selectedContours)
-            {
-                OverWriteHighResStructureWithLowResStructure(contour, _structureSet);
-            }
-
-            MessageBox.Show("Successfully converted the contours! You can now close out of the window.");
-        }
-
-        /// <summary>
-        /// Method to take a high resolution structure as input and overwrite it with a new structure that is default resolution
-        /// </summary>
-        /// <param name="theStructure"></param>
-        /// <returns></returns>
-        private static bool OverWriteHighResStructureWithLowResStructure(Structure theStructure, StructureSet selectedSS)
-        {
-            //ProvideUIUpdate(0, $"Retrieving all contour points for: {theStructure.Id}");
-            int startSlice = CalculationHelper.ComputeSlice(theStructure.MeshGeometry.Positions.Min(p => p.Z), selectedSS);
-            int stopSlice = CalculationHelper.ComputeSlice(theStructure.MeshGeometry.Positions.Max(p => p.Z), selectedSS);
-            //ProvideUIUpdate(0, $"Start slice: {startSlice}");
-            //ProvideUIUpdate(0, $"Stop slice: {stopSlice}");
-            VVector[][][] structurePoints = GetAllContourPoints(theStructure, startSlice, stopSlice);///, ProvideUIUpdate);
-            //ProvideUIUpdate(0, $"Contour points for: {theStructure.Id} loaded");
-
-            //ProvideUIUpdate(0, $"Removing and re-adding {theStructure.Id} to structure set");
-            (bool fail, Structure lowResStructure) = RemoveAndReAddStructure(theStructure, selectedSS);///, ProvideUIUpdate);
-            if (fail) return true;
-
-            //ProvideUIUpdate(0, $"Contouring {lowResStructure.Id} now");
-            ContourLowResStructure(structurePoints, lowResStructure, startSlice, stopSlice);///, ProvideUIUpdate);
-            return false;
-        }
-
-        /// <summary>
-        /// Similar to the contourlowresstructure method in generatetsbase, except instead of supplying the high res structure as an
-        /// input argument, the contour points for the high res structure are directly supplied
-        /// </summary>
-        /// <param name="structurePoints"></param>
-        /// <param name="lowResStructure"></param>
-        /// <param name="startSlice"></param>
-        /// <param name="stopSlice"></param>
-        /// <returns></returns>
-        private static bool ContourLowResStructure(VVector[][][] structurePoints, Structure lowResStructure, int startSlice, int stopSlice)//, ProvideUIUpdateDelegate ProvideUIUpdate)
-        {
-            //ProvideUIUpdate(0, $"Contouring {lowResStructure.Id}:");
-            //Write the high res contour points on the newly added low res structure
-            int percentComplete = 0;
-            int calcItems = stopSlice - startSlice + 1;
-            for (int slice = startSlice; slice <= stopSlice; slice++)
-            {
-                VVector[][] points = structurePoints[percentComplete];
-                for (int i = 0; i < points.GetLength(0); i++)
-                {
-                    if (lowResStructure.IsPointInsideSegment(points[i][0]) ||
-                        lowResStructure.IsPointInsideSegment(points[i][points[i].GetLength(0) - 1]) ||
-                        lowResStructure.IsPointInsideSegment(points[i][(int)(points[i].GetLength(0) / 2)]))
-                    {
-                        lowResStructure.SubtractContourOnImagePlane(points[i], slice);
-                    }
-                    else lowResStructure.AddContourOnImagePlane(points[i], slice);
-                }
-                //ProvideUIUpdate(100 * ++percentComplete / calcItems);
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Helper method to retrive the contour points for the supplied structure on all contoured CT slices
-        /// </summary>
-        /// <param name="theStructure"></param>
-        /// <param name="startSlice"></param>
-        /// <param name="stopSlice"></param>
-        /// <returns></returns>
-        public static VVector[][][] GetAllContourPoints(Structure theStructure, int startSlice, int stopSlice)//, ProvideUIUpdateDelegate ProvideUIUpdate)
-        {
-            int percentComplete = 0;
-            int calcItems = stopSlice - startSlice + 1;
-            VVector[][][] structurePoints = new VVector[stopSlice - startSlice + 1][][];
-            for (int slice = startSlice; slice <= stopSlice; slice++)
-            {
-                structurePoints[percentComplete++] = theStructure.GetContoursOnImagePlane(slice);
-                //ProvideUIUpdate(100 * percentComplete / calcItems);
-            }
-            return structurePoints;
-        }
-
-        /// <summary>
-        /// Helper method to remove the supplied high resolution structure, then add a new structure with the same id as the high resolution 
-        /// structure (automatically defaults to default resolution)
-        /// </summary>
-        /// <param name="theStructure"></param>
-        /// <returns></returns>
-        private static (bool, Structure) RemoveAndReAddStructure(Structure theStructure, StructureSet selectedSS)//, ProvideUIUpdateDelegate ProvideUIUpdate)
-        {
-            //ProvideUIUpdate(0, "Removing and re-adding structure:");
-            Structure newStructure = null;
-            string id = string.Format("{0}_lowRes",theStructure.Id);
-            string dicomType = theStructure.DicomType;
-            System.Windows.Media.Color color = theStructure.Color;
-            ///if (selectedSS.CanRemoveStructure(theStructure))
-            ///{
-            //selectedSS.RemoveStructure(theStructure);
-            if (selectedSS.CanAddStructure(dicomType, id))
-            {
-                newStructure = selectedSS.AddStructure(dicomType, id);
-                newStructure.Color = color;
-                //ProvideUIUpdate(0, $"{newStructure.Id} has been added to the structure set");
-            }
-            else
-            {
-                //ProvideUIUpdate(0, $"Could not re-add structure: {id}. Exiting", true);
-                return (true, newStructure);
-            }
-            //}
-            //else
-            //{
-            //    ProvideUIUpdate(0,$"Could not remove structure: {id}. Exiting", true);
-            //    return (true, newStructure);
-            //}
-            return (false, newStructure);
-        }
-
-        public static class CalculationHelper
-        {
-            /// <summary>
-            /// Determine if x and y lengths are equivalent within tolerance (default value of 1 um)
-            /// </summary>
-            /// <param name="x"></param>
-            /// <param name="y"></param>
-            /// <param name="tolerance"></param>
-            /// <returns></returns>
-            public static bool AreEqual(double x, double y, double tolerance = 0.001)
-            {
-                bool equal = false;
-                double squareDiff = Math.Pow(x - y, 2);
-                if (Math.Sqrt(squareDiff) <= tolerance) equal = true;
-                return equal;
-            }
-
-            /// <summary>
-            /// Compute mean of x and y (not included in Math library)
-            /// </summary>
-            /// <param name="x"></param>
-            /// <param name="y"></param>
-            /// <returns></returns>
-            public static double ComputeAverage(double x, double y)
-            {
-                return (x + y) / 2;
-            }
-
-            /// <summary>
-            /// Helper method to compute which CT slice a given z position is located
-            /// </summary>
-            /// <param name="z"></param>
-            /// <param name="ss"></param>
-            /// <returns></returns>
-            public static int ComputeSlice(double z, StructureSet ss)
-            {
-                return (int)Math.Round((z - ss.Image.Origin.z) / ss.Image.ZRes);
-            }
+            return true;
         }
     }
 }
