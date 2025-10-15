@@ -143,6 +143,7 @@ namespace VMS.TPS
                         if (structA == null || structB == null)
                             continue;
 
+
                         // for debugging    
                         //MessageBox.Show("Existing structures:\n" + string.Join("\n", _ss.Structures.Select(s => s.Id)));
 
