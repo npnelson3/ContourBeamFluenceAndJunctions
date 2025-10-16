@@ -25,8 +25,6 @@ namespace VMS.TPS
 {
     public class Script
     {
-
-
         public Script()
         {
 
@@ -57,8 +55,17 @@ namespace VMS.TPS
                 _course = context.Course;
                 _plan = context.PlanSetup;
 
+                // Show the UI to select the contour
+                string selectedContourID = ShowContourSelectionWindow(_ss, _patient);
+
+                if (string.IsNullOrEmpty(selectedContourID))
+                {
+                    MessageBox.Show("No contour selected. Exiting.");
+                    return;
+                }
+
                 // check for a structure named PTV_CSI
-                var ptv = _ss.Structures.FirstOrDefault(s => s.Id.Equals("PTV_CSI", StringComparison.OrdinalIgnoreCase));
+                var ptv = _ss.Structures.FirstOrDefault(s => s.Id.Equals(selectedContourID, StringComparison.OrdinalIgnoreCase));
                 if (ptv == null)
                 {
                     MessageBox.Show("PTV_CSI structure not found.");
@@ -204,6 +211,92 @@ namespace VMS.TPS
         }
 
         //HELPER FUNCTIONS
+        #region UI HELPER
+        // ========================
+        // UI HELPER
+        // ========================
+        private string ShowContourSelectionWindow(StructureSet _ss, Patient _patient)
+        {
+            string selectedId = null;
+
+            Window window = new Window();
+
+            StackPanel spMain = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(10),
+                Width = 400
+            };
+
+            TextBlock titleBlock = new TextBlock
+            {
+                Text = "Junction Creator - Contour Selection",
+                FontSize = 24,
+                FontWeight = FontWeights.Bold,
+                Foreground = System.Windows.Media.Brushes.MediumBlue,
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+
+            TextBlock infoBlock = new TextBlock
+            {
+                Text = $"Patient: {_patient.Name}\nStructure Set: {_ss.Id}",
+                Margin = new Thickness(0, 5, 0, 10)
+            };
+
+            ComboBox contourComboBox = new ComboBox
+            {
+                Width = 250,
+                Margin = new Thickness(0, 5, 0, 10)
+            };
+
+            // Populate dropdown with available structure IDs (only target-like)
+            foreach (var s in _ss.Structures
+                                 .Where(s => s.DicomType == "PTV" || s.DicomType == "CTV" || s.DicomType == "GTV")
+                                 .OrderBy(s => s.Id))
+            {
+                contourComboBox.Items.Add(s.Id);
+            }
+
+            Button okButton = new Button
+            {
+                Content = "Select Contour",
+                Width = 200,
+                Margin = new Thickness(0, 10, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+
+            okButton.Click += (sender, e) =>
+            {
+                if (contourComboBox.SelectedItem == null)
+                {
+                    MessageBox.Show("Please select a contour.");
+                    return;
+                }
+
+                selectedId = contourComboBox.SelectedItem.ToString();
+                window.DialogResult = true;
+                window.Close();
+            };
+
+            spMain.Children.Add(titleBlock);
+            spMain.Children.Add(infoBlock);
+            spMain.Children.Add(contourComboBox);
+            spMain.Children.Add(okButton);
+
+            window.Title = "Select Contour for Junction Creation";
+            window.Content = spMain;
+            window.FontFamily = new System.Windows.Media.FontFamily("Calibri");
+            window.SizeToContent = SizeToContent.WidthAndHeight;
+            window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+
+            window.ShowDialog();
+
+            return selectedId;
+        }
+        #endregion
+
+        //
 
         /// <summary>
         /// Validates that the current context is a Patient
