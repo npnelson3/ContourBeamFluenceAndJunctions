@@ -116,7 +116,7 @@ namespace VMS.TPS
                         //    $"max Z is: {maxZ}\n" +
                         //    $"max Z slice is: {maxSlice}");
 
-                        string isoStructId = $"PTV_ISO_{beamGroups.Count - i}";
+                        string isoStructId = $"BEAM_ISO_{beamGroups.Count - i}";
                         if (_ss.Structures.Any(s => s.Id.Equals(isoStructId)))
                         {
                             MessageBox.Show($"{isoStructId} exists. Skipping");
@@ -124,6 +124,7 @@ namespace VMS.TPS
                         }
 
                         Structure isoStruct = _ss.AddStructure("CONTROL", isoStructId);
+                        isoStruct.Color = System.Windows.Media.Colors.DarkGreen;
 
                         for (int z = minSlice; z <= maxSlice; z++)
                         {
@@ -134,12 +135,13 @@ namespace VMS.TPS
                             }
                         }
                     }
-                    
+
                     // Contour junctions between isocenter contours
                     for (int j = 0; j < beamGroups.Count - 1; j++) // if beamCount is 3, j will be 1 and 2
                     {
-                        string structIdA = $"PTV_ISO_{beamGroups.Count - j}";
-                        string structIdB = $"PTV_ISO_{beamGroups.Count - (j + 1)}";
+
+                        string structIdA = $"BEAM_ISO_{beamGroups.Count - j}";
+                        string structIdB = $"BEAM_ISO_{beamGroups.Count - (j + 1)}";
                         string juncStructId = $"JUNC_{beamGroups.Count - (j + 1)}";
 
                         Structure structA = _ss.Structures.FirstOrDefault(s => s.Id.Equals(structIdA));
@@ -164,6 +166,7 @@ namespace VMS.TPS
                         }
 
                         Structure juncStruct = _ss.AddStructure("CONTROL", juncStructId);
+                        juncStruct.Color = System.Windows.Media.Colors.DarkOrange;
 
                         int minSliceA = (int)Math.Round((structA.MeshGeometry.Bounds.Z - image.Origin.z) / image.ZRes);
                         int maxSliceA = (int)Math.Round(((structA.MeshGeometry.Bounds.Z + structA.MeshGeometry.Bounds.SizeZ) - image.Origin.z) / image.ZRes);
@@ -218,6 +221,9 @@ namespace VMS.TPS
         private string ShowContourSelectionWindow(StructureSet _ss, Patient _patient)
         {
             string selectedId = null;
+            var beam
+
+            // -- WINDOW --
 
             Window window = new Window();
 
