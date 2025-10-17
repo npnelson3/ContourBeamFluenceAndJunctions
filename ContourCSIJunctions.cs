@@ -116,7 +116,7 @@ namespace VMS.TPS
                         //    $"max Z is: {maxZ}\n" +
                         //    $"max Z slice is: {maxSlice}");
 
-                        string isoStructId = $"BEAM_ISO_{beamGroups.Count - i}";
+                        string isoStructId = $"BEAM_ISO_{i}";
                         if (_ss.Structures.Any(s => s.Id.Equals(isoStructId)))
                         {
                             MessageBox.Show($"{isoStructId} exists. Skipping");
@@ -140,9 +140,9 @@ namespace VMS.TPS
                     for (int j = 0; j < beamGroups.Count - 1; j++) // if beamCount is 3, j will be 1 and 2
                     {
 
-                        string structIdA = $"BEAM_ISO_{beamGroups.Count - j}";
-                        string structIdB = $"BEAM_ISO_{beamGroups.Count - (j + 1)}";
-                        string juncStructId = $"JUNC_{beamGroups.Count - (j + 1)}";
+                        string structIdA = $"BEAM_ISO_{j}";
+                        string structIdB = $"BEAM_ISO_{(j + 1)}";
+                        string juncStructId = $"JUNC_{(j + 1)}";
 
                         Structure structA = _ss.Structures.FirstOrDefault(s => s.Id.Equals(structIdA));
                         Structure structB = _ss.Structures.FirstOrDefault(s => s.Id.Equals(structIdB));
