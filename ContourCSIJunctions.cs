@@ -116,7 +116,7 @@ namespace VMS.TPS
                         //    $"max Z is: {maxZ}\n" +
                         //    $"max Z slice is: {maxSlice}");
 
-                        string isoStructId = $"BEAM_ISO_{i}";
+                        string isoStructId = $"BEAM_ISO_{i+1}";
                         if (_ss.Structures.Any(s => s.Id.Equals(isoStructId)))
                         {
                             MessageBox.Show($"{isoStructId} exists. Skipping");
