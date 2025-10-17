@@ -56,7 +56,7 @@ namespace VMS.TPS
                 _plan = context.PlanSetup;
 
                 // Show the UI to select the contour
-                string selectedContourID = ShowContourSelectionWindow(_ss, _patient);
+                string selectedContourID = ShowContourSelectionWindow(_ss, _patient, _plan);
 
                 if (string.IsNullOrEmpty(selectedContourID))
                 {
@@ -64,7 +64,7 @@ namespace VMS.TPS
                     return;
                 }
 
-                // check for a structure named PTV_CSI
+                // load the selected structure
                 var ptv = _ss.Structures.FirstOrDefault(s => s.Id.Equals(selectedContourID, StringComparison.OrdinalIgnoreCase));
                 if (ptv == null)
                 {
@@ -81,9 +81,9 @@ namespace VMS.TPS
                 }
 
                 int junctionCount = beamGroups.Count - 1;
-                MessageBox.Show(
-                    $"You are working with patient {_patient.Id}, course {_course.Id}, structure set {_ss.Id} and plan {_plan.Id}.\n\n" +
-                    $"Found {beamGroups.Count} isocenter groups in the plan, will create {junctionCount} junction structure(s).");
+                //MessageBox.Show(
+                //    $"You are working with patient {_patient.Id}, course {_course.Id}, structure set {_ss.Id} and plan {_plan.Id}.\n\n" +
+                //    $"Found {beamGroups.Count} isocenter groups in the plan, will create {junctionCount} junction structure(s).");
 
                 try
                 {
@@ -218,11 +218,26 @@ namespace VMS.TPS
         // ========================
         // UI HELPER
         // ========================
-        private string ShowContourSelectionWindow(StructureSet _ss, Patient _patient)
+        private string ShowContourSelectionWindow(StructureSet _ss, Patient _patient, PlanSetup _plan)
         {
             string selectedId = null;
-            var beam
+            // group beams by iso
+            var beamGroups = _plan.Beams.Where(b => !b.IsSetupField).GroupBy(b => new { b.IsocenterPosition.x, b.IsocenterPosition.y, b.IsocenterPosition.z }).ToList();
+            int junctionCount = beamGroups.Count - 1;
 
+            // Build a readable summary of overlaps
+            StringBuilder overlapSummary = new StringBuilder();
+            overlapSummary.AppendLine($"Found {beamGroups.Count} isocenter group(s): will create {beamGroups.Count} beam contours and {junctionCount} junction(s).");
+            overlapSummary.AppendLine();
+
+            for (int j = 0; j < beamGroups.Count - 1; j++)
+            {
+                string isoA = $"ISO_{beamGroups.Count - j}";
+                string isoB = $"ISO_{beamGroups.Count - (j + 1)}";
+                string juncId = $"JUNC_{beamGroups.Count - (j + 1)}";
+
+                overlapSummary.AppendLine($"• {juncId}: between {isoA} and {isoB}");
+            }
             // -- WINDOW --
 
             Window window = new Window();
@@ -235,6 +250,7 @@ namespace VMS.TPS
                 Width = 400
             };
 
+            // TITLE
             TextBlock titleBlock = new TextBlock
             {
                 Text = "Junction Creator - Contour Selection",
@@ -244,10 +260,26 @@ namespace VMS.TPS
                 Margin = new Thickness(0, 0, 0, 10)
             };
 
+            // PATIENT AND PLAN INFO
             TextBlock infoBlock = new TextBlock
             {
                 Text = $"Patient: {_patient.Name}\nStructure Set: {_ss.Id}",
                 Margin = new Thickness(0, 5, 0, 10)
+            };
+
+            // JUNCTION/ISO SUMMARY
+            TextBlock overlapBlock = new TextBlock
+            {
+                Text = overlapSummary.ToString(),
+                Margin = new Thickness(0, 5, 0, 10),
+                TextWrapping = TextWrapping.Wrap
+            };
+
+            // --- Contour selector ---
+            TextBlock selectLabel = new TextBlock
+            {
+                Text = "Select the base contour to use for junction creation:",
+                Margin = new Thickness(0, 5, 0, 5)
             };
 
             ComboBox contourComboBox = new ComboBox
@@ -287,6 +319,8 @@ namespace VMS.TPS
 
             spMain.Children.Add(titleBlock);
             spMain.Children.Add(infoBlock);
+            spMain.Children.Add(overlapBlock);
+            spMain.Children.Add(selectLabel);
             spMain.Children.Add(contourComboBox);
             spMain.Children.Add(okButton);
 
